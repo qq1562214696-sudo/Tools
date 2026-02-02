@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\Directory\shell\$$快速启动]
+@="$$快速启动"
+"Icon"="shell32.dll,167"
+
+[HKEY_CLASSES_ROOT\Directory\shell\$$快速启动\command]
+@="powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"C:\\Tools\\$$快速启动.ps1\" \"%1\""

@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\Directory\shell\QF_文件夹快速处理]
+@="QF_文件夹快速处理"
+"Icon"="shell32.dll,167"
+
+[HKEY_CLASSES_ROOT\Directory\shell\QF_文件夹快速处理\command]
+@="powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"C:\\Tools\\QF_文件夹快速处理.ps1\" \"%1\""

@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\Directory\shell\$$备注文件夹$$]
+@="$$备注文件夹$$"
+"Icon"="shell32.dll,167"
+
+[HKEY_CLASSES_ROOT\Directory\shell\$$备注文件夹$$\command]
+@="powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"C:\\Tools\\$$备注文件夹$$.ps1\" \"%1\""
