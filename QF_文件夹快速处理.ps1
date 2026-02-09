@@ -149,11 +149,13 @@ $form.Controls.Add($lblStatus)
 
 # 处理文件夹函数
 function Process-Folders {
-    $lblStatus.Text = "正在标记源文件..."
+    $lblStatus.Text = "正在收集并复制命名..."
     $lblStatus.ForeColor = [System.Drawing.Color]::Blue
     $form.Refresh()
    
+    # 收集所有有效的命名
     $items = @()
+    $validNames = @()
     foreach ($item in $script:itemList) {
         $name = $item.TextBox.Text.Trim()
         if (-not [string]::IsNullOrWhiteSpace($name)) {
@@ -161,6 +163,7 @@ function Process-Folders {
                 Name = $name
                 Transparent = $item.CheckBox.Checked
             }
+            $validNames += $name
         }
     }
    
@@ -171,10 +174,22 @@ function Process-Folders {
         return
     }
     
+    # 第一步：自动复制命名到剪贴板
+    $textToCopy = $validNames -join "`n"
+    [System.Windows.Forms.Clipboard]::SetText($textToCopy)
+    $lblStatus.Text = "已复制 $($validNames.Count) 个命名到剪贴板，开始处理文件..."
+    $lblStatus.ForeColor = [System.Drawing.Color]::Green
+    $form.Refresh()
+    
+    # 第二步：标记源文件
+    $lblStatus.Text = "正在标记源文件..."
+    $lblStatus.ForeColor = [System.Drawing.Color]::Blue
+    $form.Refresh()
+    
     # 存储标记项目的信息
     $markedItems = @()
     
-    # 第一步：标记所有下划线后面不是数字的文件夹
+    # 标记所有下划线后面不是数字的文件夹
     $allFolders = Get-ChildItem -Path $targetFolder -Directory |
         Where-Object { $_.Name -match '_' -and $_.Name -notin @("Assets", "截图") }
     
@@ -184,7 +199,7 @@ function Process-Folders {
         if ($folderName -match "^(.+?)_(.+)$") {
             $suffix = $Matches[2]
             
-            # 如果下划线后面的部分不是纯数字，则标记（例如：Hand_手持）
+            # 如果下划线后面的部分不是纯数字，则标记
             if (-not ($suffix -match "^\d+$")) {
                 # 检查是否已经被标记过
                 if (-not $folderName.EndsWith("_删")) {
@@ -215,32 +230,6 @@ function Process-Folders {
         }
     }
     
-    # 第二步：标记待改_截图.jpg
-    $screenshotFolder = Join-Path $targetFolder "截图"
-    $screenshotFile = Join-Path $screenshotFolder "待改_截图.jpg"
-    $screenshotFileMarked = Join-Path $screenshotFolder "待改_截图_删.jpg"
-    
-    if (Test-Path $screenshotFile) {
-        try {
-            # 如果已经有标记的文件，先删除它
-            if (Test-Path $screenshotFileMarked) {
-                Remove-Item $screenshotFileMarked -Force -ErrorAction SilentlyContinue
-            }
-            
-            Rename-Item -Path $screenshotFile -NewName "待改_截图_删.jpg" -Force
-            
-            $markedItems += @{
-                Type = "File"
-                OriginalPath = $screenshotFile
-                MarkedPath = $screenshotFileMarked
-                OriginalName = "待改_截图.jpg"
-                MarkedName = "待改_截图_删.jpg"
-            }
-        } catch {
-            # 如果重命名失败，继续
-        }
-    }
-    
     # 第三步：使用标记后的模板文件夹创建新文件夹
     $lblStatus.Text = "正在创建新文件夹..."
     $form.Refresh()
@@ -259,32 +248,99 @@ function Process-Folders {
         if ($fileName -match "^(.+?)_(.+)$") {
             $prefix = $Matches[1]
             
-            # 查找标记后的模板文件夹（去掉"_删"后缀来匹配前缀）
-            $sourceFolder = $markedTemplates | Where-Object { 
-                $baseName = $_.Name -replace '_删$', ''
-                $baseName -match "^${prefix}_"
-            } | Select-Object -First 1
+            # 查找标记后的模板文件夹
+            # 1. 首先查找是否有_boy和_girl后缀的模板
+            $boyTemplate = $null
+            $girlTemplate = $null
+            $genericTemplate = $null
             
-            if ($sourceFolder) {
+            foreach ($template in $markedTemplates) {
+                $baseName = $template.Name -replace '_删$', ''
+                
+                # 检查是否匹配前缀
+                if ($baseName -match "^${prefix}_") {
+                    # 检查是否是_boy模板
+                    if ($baseName -match '_boy$') {
+                        $boyTemplate = $template
+                    }
+                    # 检查是否是_girl模板
+                    elseif ($baseName -match '_girl$') {
+                        $girlTemplate = $template
+                    }
+                    # 检查是否是通用模板（没有_boy或_girl后缀）
+                    elseif (-not ($baseName -match '_(boy|girl)$')) {
+                        $genericTemplate = $template
+                    }
+                }
+            }
+            
+            # 根据找到的模板决定创建哪些文件夹
+            $templatesToProcess = @()
+            
+            if ($boyTemplate -and $girlTemplate) {
+                # 同时存在_boy和_girl模板，创建两份
+                $templatesToProcess += @{
+                    Template = $boyTemplate
+                    Suffix = "_boy"
+                }
+                $templatesToProcess += @{
+                    Template = $girlTemplate
+                    Suffix = "_girl"
+                }
+            }
+            elseif ($genericTemplate) {
+                # 只有通用模板，创建一份
+                $templatesToProcess += @{
+                    Template = $genericTemplate
+                    Suffix = ""
+                }
+            }
+            elseif ($boyTemplate -or $girlTemplate) {
+                # 只有_boy或_girl模板中的一个，也创建一份（带相应后缀）
+                if ($boyTemplate) {
+                    $templatesToProcess += @{
+                        Template = $boyTemplate
+                        Suffix = "_boy"
+                    }
+                }
+                else {
+                    $templatesToProcess += @{
+                        Template = $girlTemplate
+                        Suffix = "_girl"
+                    }
+                }
+            }
+            else {
+                # 没有找到任何匹配的模板
+                $errorCount++
+                continue
+            }
+            
+            # 处理每个模板
+            foreach ($templateInfo in $templatesToProcess) {
+                $sourceFolder = $templateInfo.Template
+                $suffix = $templateInfo.Suffix
+                $newFolderName = $fileName + $suffix  # 文件夹名带后缀
                 $sourcePath = $sourceFolder.FullName
-                $targetPath = Join-Path $targetFolder $fileName
+                $targetPath = Join-Path $targetFolder $newFolderName
                 
                 try {
                     if (Test-Path $targetPath) {
-                        $result = [System.Windows.Forms.MessageBox]::Show("文件夹 '$fileName' 已存在，是否覆盖？", "确认", "YesNo", "Question")
+                        $result = [System.Windows.Forms.MessageBox]::Show("文件夹 '$newFolderName' 已存在，是否覆盖？", "确认", "YesNo", "Question")
                         if ($result -eq "No") { continue }
                         Remove-Item -Path $targetPath -Recurse -Force
                     }
                     
+                    # 复制文件夹
                     Copy-Item -Path $sourcePath -Destination $targetPath -Recurse -Force
                     
-                    # 重命名.max文件
+                    # 重命名.max文件 - 使用原始文件名（不带_boy/_girl后缀）
                     $maxFile = Get-ChildItem -Path $targetPath -Filter "*.max" | Select-Object -First 1
                     if ($maxFile) {
                         Rename-Item -Path $maxFile.FullName -NewName "$fileName.max" -Force
                     }
                     
-                    # 图片处理
+                    # 图片处理 - 使用原始文件名（不带_boy/_girl后缀）
                     $imageFiles = Get-ChildItem -Path $targetPath -File | Where-Object {
                         $_.Extension -match "\.(png|psd)$"
                     }
@@ -309,19 +365,10 @@ function Process-Folders {
                         }
                     }
                     
-                    # 复制截图
-                    if (Test-Path $screenshotFileMarked -PathType Leaf) {
-                        $newScreenshotName = "$fileName.jpg"
-                        $targetScreenshot = Join-Path $screenshotFolder $newScreenshotName
-                        Copy-Item -Path $screenshotFileMarked -Destination $targetScreenshot -Force
-                    }
-                    
                     $successCount++
                 } catch {
                     $errorCount++
                 }
-            } else {
-                $errorCount++
             }
         } else {
             $errorCount++
@@ -339,8 +386,6 @@ function Process-Folders {
                 if (Test-Path $markedItem.MarkedPath) {
                     if ($markedItem.Type -eq "Folder") {
                         Remove-Item $markedItem.MarkedPath -Recurse -Force -ErrorAction SilentlyContinue
-                    } else {
-                        Remove-Item $markedItem.MarkedPath -Force -ErrorAction SilentlyContinue
                     }
                 }
             } catch {
@@ -349,8 +394,6 @@ function Process-Folders {
                     if (Test-Path $markedItem.MarkedPath) {
                         if ($markedItem.Type -eq "Folder") {
                             cmd /c "rd /s /q `"$($markedItem.MarkedPath)`""
-                        } else {
-                            cmd /c "del /f /q `"$($markedItem.MarkedPath)`""
                         }
                     }
                 } catch {
@@ -372,10 +415,9 @@ function Process-Folders {
     }
     
     # 第五步：显示结果并关闭
-    $lblStatus.Text = "处理完成！成功: $successCount 个，失败: $errorCount 个"
+    $lblStatus.Text = "处理完成！成功: $successCount 个，失败: $errorCount 个，命名已复制"
     $lblStatus.ForeColor = if ($successCount -gt 0) { [System.Drawing.Color]::Green } else { [System.Drawing.Color]::Red }
-       
-    # 关闭窗口
+
     $form.Close()
 }
 
